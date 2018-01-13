@@ -10,8 +10,7 @@ ENV SLEEPTIME=43200
 
 RUN echo "@edge http://nl.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
 RUN echo "@edgetesting http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
-RUN apk add --no-cache perl@edge perl-html-parser@edge perl-http-cookies@edge perl-lwp-useragent-determined@edge perl-json@edge perl-json-xs@edgetesting
-RUN apk add --no-cache liblwp-protocol-https-perl@edgetesting
+RUN apk add --no-cache perl@edge perl-html-parser@edge perl-http-cookies@edge perl-lwp-useragent-determined@edge perl-json@edge perl-json-xs@edgetesting perl-lwp-protocol-https@edge
 
 VOLUME /data
 ADD zap2xml.pl /zap2xml.pl
