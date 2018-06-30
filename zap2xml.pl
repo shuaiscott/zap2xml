@@ -80,6 +80,7 @@ $lineupname;
 $lineuplocation;
 
 $zapToken;
+$zapPref='-';
 %zapFavorites=();
 %sidCache=();
 
@@ -254,10 +255,10 @@ if (defined($options{z})) {
     $fn = "$cacheDir/$ms\.js\.gz";
     if (! -e $fn || $curday > $ncdays || $curday <= $ncsdays || $curday == $ncmday) {
       my $zstart = substr($ms, 0, -3);
-      $params = "?time=$zstart&timespan=$gridHours&";
+      $params = "?time=$zstart&timespan=$gridHours&pref=$zapPref&";
       $params .= &getZapGParams();
       $params .= '&TMSID=&AffiliateID=gapzap&FromPage=TV%20Grid';
-      $params .= '&ActivityID=1&OVDID=&isOverride=true&pref=-';
+      $params .= '&ActivityID=1&OVDID=&isOverride=true';
       $rs = &getURL($urlRoot . "api/grid$params",'X-Requested-With' => 'XMLHttpRequest');
       last if ($rs eq '');
       $rc = Encode::encode('utf8', $rs);
@@ -822,6 +823,15 @@ sub loginZAP {
     if ($r->is_success) {
       my $t = decode_json($dc);
       $zapToken = $t->{'token'};
+      $zapPref = '';
+      $zapPref .= "m" if ($t->{isMusic});
+      $zapPref .= "p" if ($t->{isPPV});
+      $zapPref .= "h" if ($t->{isHD});
+      if ($zapPref eq '') { $zapPref = '-' } 
+      else {
+        $zapPref = join(",", split(//, $zapPref));
+      } 
+
       my $prs = $t->{'properties'};
       $postalcode = $prs->{2002};
       $country = $prs->{2003};
@@ -958,8 +968,10 @@ sub copyLogo {
     my $src = "$iconDir/" . $stations{$key}{logo} . $stations{$key}{logoExt};
     my $dest1 = "$iconDir/$num" . $stations{$key}{logoExt};
     my $dest2 = "$iconDir/$num " . $stations{$key}{name} . $stations{$key}{logoExt};
+    my $dest3 = "$iconDir/$num\_" . $stations{$key}{name} . $stations{$key}{logoExt};
     copy($src, $dest1);
     copy($src, $dest2);
+    copy($src, $dest3);
   }
 }
 
@@ -1364,6 +1376,7 @@ sub postJSONO {
   if (! -e $fn) {
     my $url = $urlRoot . 'api/program/overviewDetails';
     &pout("[$treq] Post $sid: $url\n");
+    sleep $sleeptime; # do these rapid requests flood servers?
     $treq++;
     my %phash = &getZapPParams();
     $phash{programSeriesID} = $sid;
@@ -1505,7 +1518,7 @@ sub min ($$) { $_[$_[0] > $_[1]] }
 
 sub HELP_MESSAGE {
 print <<END;
-zap2xml <zap2xml\@gmail.com> (2018-01-10)
+zap2xml <zap2xml\@gmail.com> (2018-01-12)
   -u <username>
   -p <password>
   -d <# of days> (default = $days)
