@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 # zap2xml (c) <zap2xml@gmail.com> - for personal use only!
 # not for redistribution of any kind, or conversion to other languages,
-# not GPL. not for github, thank you. 
+# not GPL. not for github, thank you.
 
 BEGIN { $SIG{__DIE__} = sub { 
   return if $^S;
@@ -34,6 +34,7 @@ use HTTP::Cookies;
 use URI;
 use URI::Escape;
 use LWP::UserAgent;
+use LWP::ConnCache;
 use POSIX;
 use Time::Local;
 use Time::Piece;
@@ -43,6 +44,9 @@ no warnings 'utf8';
 
 STDOUT->autoflush(1);
 STDERR->autoflush(1);
+
+$VERSION = "2018-12-01";
+print "zap2xml ($VERSION)\nCommand line: $0 " .  join(" ",@ARGV) . "\n";
 
 %options=();
 getopts("?aA:bB:c:C:d:DeE:Fgi:IjJ:l:Lm:Mn:N:o:Op:P:qRr:s:S:t:Tu:UwWxY:zZ:89",\%options);
@@ -155,7 +159,7 @@ $urlRoot = 'https://tvlistings.zap2it.com/';
 $urlAssets = 'https://zap2it.tmsimg.com/assets/';
 $tvgurlRoot = 'http://mobilelistings.tvguide.com/';
 $tvgMapiRoot = 'http://mapi.tvguide.com/';
-$tvgurl = 'http://www.tvguide.com/';
+$tvgurl = 'https://www.tvguide.com/';
 $tvgspritesurl = 'http://static.tvgcdn.net/sprites/';
 $retries = 20 if $retries > 20; # Too many
 
@@ -166,10 +170,12 @@ my $cs;
 my $rcs;
 my %schedule = ();
 my $sch;
+my %logos = ();
 
 my $coNum = 0;
 my $tb = 0;
 my $treq = 0;
+my $tsocks = ();
 my $expired = 0;
 my $ua;
 my $tba = 0;
@@ -218,7 +224,9 @@ if (defined($options{z})) {
       &login() if !defined($zlineupId);
       my $duration = $gridHours * 60;
       my $tvgstart = substr($ms, 0, -3);
-      $rc = Encode::encode('utf8', &getURL($tvgurlRoot . "Listingsweb/ws/rest/schedules/$zlineupId/start/$tvgstart/duration/$duration"));
+      $rs = &getURL($tvgurlRoot . "Listingsweb/ws/rest/schedules/$zlineupId/start/$tvgstart/duration/$duration", 1);
+      last if ($rs eq '');
+      $rc = Encode::encode('utf8', $rs);
       &wbf($fn, Compress::Zlib::memGzip($rc));
     }
     &pout("[" . ($count+1) . "/" . "$maxCount] Parsing: $fn\n");
@@ -259,7 +267,7 @@ if (defined($options{z})) {
       $params .= &getZapGParams();
       $params .= '&TMSID=&AffiliateID=gapzap&FromPage=TV%20Grid';
       $params .= '&ActivityID=1&OVDID=&isOverride=true';
-      $rs = &getURL($urlRoot . "api/grid$params",'X-Requested-With' => 'XMLHttpRequest');
+      $rs = &getURL($urlRoot . "api/grid$params",1);
       last if ($rs eq '');
       $rc = Encode::encode('utf8', $rs);
       &wbf($fn, Compress::Zlib::memGzip($rc));
@@ -283,8 +291,10 @@ if (defined($options{z})) {
 
 }
 my $s2 = time();
-
-&pout("Downloaded $tb bytes in $treq http requests.\n") if $tb > 0;
+my $tsockt = scalar(keys %tsocks);
+&pout("Downloaded " . &pl($tb, "byte") 
+  . " in " . &pl($treq, "http request") 
+  . " using " . &pl($tsockt > 0 ? $tsockt : $treq, "socket") . ".\n") if $tb > 0;
 &pout("Expired programs: $expired\n") if $expired > 0;
 &pout("Writing XML file: $outFile\n");
 open($FH, ">$outFile");
@@ -339,6 +349,12 @@ sub incXML {
     }
   }
   close($XF);
+}
+
+sub pl {
+ my($i, $s) = @_;
+ my $r = "$i $s";
+ return $i == 1 ? $r : $r . "s";
 }
 
 sub pout {
@@ -672,11 +688,6 @@ sub printStationsXTVD {
       print $FH "\t\t<callSign>" . $sname . "</callSign>\n";
       print $FH "\t\t<name>" . $sname . "</name>\n";
       print $FH "\t\t<fccChannelNumber>" . $stations{$key}{number} . "</fccChannelNumber>\n";
-      if (defined($stations{$key}{logo}) && $stations{$key}{logo} =~ /_affiliate/i) {
-        $affiliate = $stations{$key}{logo};
-        $affiliate =~ s/(.*)\_.*/uc($1)/e;
-        print $FH "\t\t<affiliate>" . $affiliate . " Affiliate</affiliate>\n";
-      }
       &copyLogo($key);
     }
     print $FH "\t</station>\n";
@@ -767,8 +778,7 @@ sub printGenresXTVD {
 }
 
 sub loginTVG {
-  $treq++;
-  my $r = $ua->get($tvgurl . 'user/_modal/');
+  my $r = &ua_get($tvgurl . 'signin/');
   if ($r->is_success) {
     my $str = $r->decoded_content;
     if ($str =~ /<input.+name=\"_token\".+?value=\"(.*?)\"/is) {
@@ -776,7 +786,7 @@ sub loginTVG {
       if ($userEmail ne '' && $password ne '') {
         my $rc = 0;
         while ($rc++ < $retries) {
-          my $r = $ua->post($tvgurl . 'user/attempt/', 
+          my $r = &ua_post($tvgurl . 'user/attempt/', 
             { 
               _token => $token,
               email => $userEmail, 
@@ -788,7 +798,7 @@ sub loginTVG {
           if ($dc =~ /success/) {
             $ua->cookie_jar->scan(sub { if ($_[1] eq "ServiceID") { $zlineupId = $_[2]; }; }); 
             if (!defined($options{a})) {
-              my $r = $ua->get($tvgurl . "user/favorites/?provider=$zlineupId",'X-Requested-With' => 'XMLHttpRequest'); 
+              my $r = &ua_get($tvgurl . "user/favorites/?provider=$zlineupId",'X-Requested-With' => 'XMLHttpRequest'); 
               $dc = Encode::encode('utf8', $r->decoded_content( raise_error => 1 ));
               if ($dc =~ /\{\"code\":200/) {
                 &parseTVGFavs($dc);
@@ -796,7 +806,7 @@ sub loginTVG {
             }
             return $dc; 
           } else {
-            &pout("[Attempt $rc] " . $dc . "\n");
+            &pout("[Attempt $rc] " . $r->status_line . ":"  . $dc . "\n");
             sleep ($sleeptime + 1);
           }
         }
@@ -811,8 +821,7 @@ sub loginTVG {
 sub loginZAP {
   my $rc = 0;
   while ($rc++ < $retries) {
-    $treq++;
-    my $r = $ua->post($urlRoot . 'api/user/login', 
+    my $r = &ua_post($urlRoot . 'api/user/login', 
       { 
         emailid => $userEmail, password => $password,
         usertype => '0', facebookuser =>'false',
@@ -837,7 +846,7 @@ sub loginZAP {
       $country = $prs->{2003};
       ($lineupId, $device) = split(/:/, $prs->{2004});
       if (!defined($options{a})) {
-        my $r = $ua->post($urlRoot . "api/user/favorites", { token => $zapToken }, 'X-Requested-With' => 'XMLHttpRequest'); 
+        my $r = &ua_post($urlRoot . "api/user/favorites", { token => $zapToken }, 'X-Requested-With' => 'XMLHttpRequest'); 
         $dc = Encode::encode('utf8', $r->decoded_content( raise_error => 1 ));
         if ($r->is_success) {
           &parseZFavs($dc);
@@ -899,7 +908,8 @@ sub login {
   }
 
   if (!defined($ua)) {
-    $ua = LWP::UserAgent->new(ssl_opts => { verify_hostname => 0 }); # WIN 
+    $ua = LWP::UserAgent->new(ssl_opts => { verify_hostname => 0 }); # WIN
+    $ua->conn_cache(LWP::ConnCache->new( total_capacity => undef ));
     $ua->cookie_jar(HTTP::Cookies->new);
     $ua->proxy(['http', 'https'], $proxy) if defined($proxy);
     $ua->agent('Mozilla/4.0');
@@ -918,34 +928,58 @@ sub login {
   }
 }
 
+sub ua_stats {
+  my ($s, @p) = @_;
+  my $r;
+  if ($s eq 'POST') {
+    $r = $ua->post(@p);
+  } else { 
+    $r = $ua->get(@p);
+  }
+  my $cc = $ua->conn_cache;
+  if (defined($cc)) {
+    my @cxns = $cc->get_connections();
+    foreach (@cxns) {
+      $tsocks{$_} = 1;
+    }
+  }
+  $treq++;
+  $tb += length($r->content);
+  return $r;
+}
+
+sub ua_get { return &ua_stats('GET', @_); }
+sub ua_post { return &ua_stats('POST', @_); }
+
 sub getURL {
   my $url = shift;
+  my $er = shift;
   &login() if !defined($ua);
 
   my $rc = 0;
   while ($rc++ < $retries) {
     &pout("[$treq] Getting: $url\n");
     sleep $sleeptime; # do these rapid requests flood servers?
-    $treq++;
-    my $r = $ua->get($url);
+    my $r = &ua_get($url);
     my $cl = length($r->content);
-    $tb += $cl;
     my $dc = $r->decoded_content( raise_error => 1 );
     if ($r->is_success && $cl) {
       return $dc;
-    } elsif ($r->code == 400 && $dc =~ /Invalid time stamp passed/) {
-      &pout("$dc\n");
-      &pout("Date not in range (reached zap2it limit), normal exit.\n");
-      return "";
     } elsif ($r->code == 500 && $dc =~ /Could not load details/) {
       &pout("$dc\n");
       return "";
     } else {
       &perr("[Attempt $rc] $cl:" . $r->status_line . "\n");
+      &perr($r->content . "\n");
       sleep ($sleeptime + 2);
     }
   }
-  die "Failed to download within $retries retries.\n";
+  &perr("Failed to download within $retries retries.\n");
+  if ($er) { 
+    &perr("Server out of data? Temporary server error? Normal exit anyway.\n");
+    return "";
+  };
+  die;
 }
 
 sub wbf {
@@ -963,12 +997,16 @@ sub unf {
 
 sub copyLogo {
   my $key = shift;
-  if (defined($iconDir) && defined($stations{$key}{logo})) {
+  my $cid = $key;
+  if (!defined($logos{$cid}{logo})) {
+     $cid = substr($key, rindex($key, ".")+1);
+  }
+  if (defined($iconDir) && defined($logos{$cid}{logo})) {
     my $num = $stations{$key}{number};
-    my $src = "$iconDir/" . $stations{$key}{logo} . $stations{$key}{logoExt};
-    my $dest1 = "$iconDir/$num" . $stations{$key}{logoExt};
-    my $dest2 = "$iconDir/$num " . $stations{$key}{name} . $stations{$key}{logoExt};
-    my $dest3 = "$iconDir/$num\_" . $stations{$key}{name} . $stations{$key}{logoExt};
+    my $src = "$iconDir/" . $logos{$cid}{logo} . $logos{$cid}{logoExt};
+    my $dest1 = "$iconDir/$num" . $logos{$cid}{logoExt};
+    my $dest2 = "$iconDir/$num " . $stations{$key}{name} . $logos{$cid}{logoExt};
+    my $dest3 = "$iconDir/$num\_" . $stations{$key}{name} . $logos{$cid}{logoExt};
     copy($src, $dest1);
     copy($src, $dest2);
     copy($src, $dest3);
@@ -981,11 +1019,11 @@ sub handleLogo {
     mkdir($iconDir) or die "Can't mkdir: $!\n";
   }
   my $n; my $s;  ($n,$_,$s) = fileparse($url, qr"\..*");
-  $stations{$cs}{logo} = $n;
-  $stations{$cs}{logoExt} = $s;
   $stations{$cs}{logoURL} = $url;
+  $logos{$cs}{logo} = $n;
+  $logos{$cs}{logoExt} = $s;
   my $f = $iconDir . "/" . $n . $s;
-  if (! -e $f) { &wbf($f, &getURL($url)); }
+  if (! -e $f) { &wbf($f, &getURL($url,0)); }
 }
 
 sub setOriginalAirDate {
@@ -1009,7 +1047,7 @@ sub parseZFavs {
     my $m = $t->{'channels'};
     foreach my $f (@{$m}) {
       if ($options{R}) {
-        my $r = $ua->post($urlRoot . "api/user/ChannelAddtofav", { token => $zapToken, prgsvcid => $f, addToFav => "false" }, 'X-Requested-With' => 'XMLHttpRequest');
+        my $r = &ua_post($urlRoot . "api/user/ChannelAddtofav", { token => $zapToken, prgsvcid => $f, addToFav => "false" }, 'X-Requested-With' => 'XMLHttpRequest');
         if ($r->is_success) {
           &pout("Removed favorite $f\n");
         } else {
@@ -1043,7 +1081,7 @@ sub parseTVGFavs {
 
 sub parseTVGIcons {
   require GD;
-  $rc = Encode::encode('utf8', &getURL($tvgspritesurl . "$zlineupId\.css") );
+  $rc = Encode::encode('utf8', &getURL($tvgspritesurl . "$zlineupId\.css",0) );
   if ($rc =~ /background-image:.+?url\((.+?)\)/) {
     my $url = $tvgspritesurl . $1;
 
@@ -1053,7 +1091,7 @@ sub parseTVGIcons {
 
     ($n,$_,$s) = fileparse($url, qr"\..*");
     $f = $iconDir . "/sprites-" . $n . $s;
-    &wbf($f, &getURL($url));
+    &wbf($f, &getURL($url,0));
 
     GD::Image->trueColor(1);
     $im = new GD::Image->new($f);
@@ -1070,10 +1108,10 @@ sub parseTVGIcons {
       $icon->saveAlpha(1);
       $icon->copy($im, 0, 0, $iconx, $icony, $iconw, $iconh);
 
-      $stations{$cid}{logo} = "sprite-" . $cid;
-      $stations{$cid}{logoExt} = $s;
+      $logos{$cid}{logo} = "sprite-" . $cid;
+      $logos{$cid}{logoExt} = $s;
 
-      my $ifn = $iconDir . "/" . $stations{$cid}{logo} . $stations{$cid}{logoExt};
+      my $ifn = $iconDir . "/" . $logos{$cid}{logo} . $logos{$cid}{logoExt};
       &wbf($ifn, $icon->png);
     }
   }
@@ -1226,7 +1264,7 @@ sub getDetails {
   my ($func, $cp, $url, $prefix) = @_;
   my $fn = "$cacheDir/$prefix$cp\.js\.gz";
   if (! -e $fn) {
-    my $rs = &getURL($url);
+    my $rs = &getURL($url,1);
     if (length($rs)) {
       $rc = Encode::encode('utf8', $rs);
       &wbf($fn, Compress::Zlib::memGzip($rc));
@@ -1377,13 +1415,10 @@ sub postJSONO {
     my $url = $urlRoot . 'api/program/overviewDetails';
     &pout("[$treq] Post $sid: $url\n");
     sleep $sleeptime; # do these rapid requests flood servers?
-    $treq++;
     my %phash = &getZapPParams();
     $phash{programSeriesID} = $sid;
     $phash{'clickstream[FromPage]'} = 'TV%20Grid';
-    my $r = $ua->post($url, \%phash, 'X-Requested-With' => 'XMLHttpRequest'); 
-    my $cl = length($r->content);
-    $tb += $cl;
+    my $r = &ua_post($url, \%phash, 'X-Requested-With' => 'XMLHttpRequest'); 
     if ($r->is_success) {
       $dc = Encode::encode('utf8', $r->decoded_content( raise_error => 1 ));
       &wbf($fn, Compress::Zlib::memGzip($dc));
@@ -1518,7 +1553,7 @@ sub min ($$) { $_[$_[0] > $_[1]] }
 
 sub HELP_MESSAGE {
 print <<END;
-zap2xml <zap2xml\@gmail.com> (2018-01-12)
+zap2xml <zap2xml\@gmail.com> ($VERSION)
   -u <username>
   -p <password>
   -d <# of days> (default = $days)
