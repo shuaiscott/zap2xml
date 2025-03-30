@@ -1,4 +1,4 @@
-:no_entry: [DEPRECATED]
+Fork of https://github.com/shuaiscott/zap2xml
 
 # zap2xml
 Docker container for zap2xml
