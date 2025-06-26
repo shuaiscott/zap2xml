@@ -155,7 +155,7 @@ $allChan = 1 if defined($zipcode) && defined($zlineupId);
 $sleeptime = $options{S} if defined $options{S};
 $shiftMinutes = $options{m} if defined $options{m};
 $ncdays = $days - $ncdays; # make relative to the end
-$urlRoot = 'https://tvlistings.zap2it.com/';
+$urlRoot = 'https://tvlistings.gracenote.com/';
 $urlAssets = 'https://zap2it.tmsimg.com/assets/';
 $tvgurlRoot = 'http://mobilelistings.tvguide.com/';
 $tvgMapiRoot = 'http://mapi.tvguide.com/';
@@ -912,7 +912,7 @@ sub login {
     $ua->conn_cache(LWP::ConnCache->new( total_capacity => undef ));
     $ua->cookie_jar(HTTP::Cookies->new);
     $ua->proxy(['http', 'https'], $proxy) if defined($proxy);
-    $ua->agent('Mozilla/4.0');
+    $ua->agent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.3296.83');
     $ua->default_headers->push_header('Accept-Encoding' => 'gzip, deflate');
   }
 
