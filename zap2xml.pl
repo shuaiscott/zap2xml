@@ -77,6 +77,7 @@ $device;
 $sleeptime = 0;
 $allChan = 0;
 $shiftMinutes = 0;
+$aid = 'orbebb';
 
 $outputXTVD = 0;
 $lineuptype;
@@ -265,7 +266,7 @@ if (defined($options{z})) {
       my $zstart = substr($ms, 0, -3);
       $params = "?time=$zstart&timespan=$gridHours&pref=$zapPref&";
       $params .= &getZapGParams();
-      $params .= '&TMSID=&AffiliateID=orbebb&FromPage=TV%20Grid';
+      $params .= "&TMSID=&AffiliateID=$aid&FromPage=TV%20Grid";
       $params .= '&ActivityID=1&OVDID=&isOverride=true';
       $rs = &getURL($urlRoot . "api/grid$params",1);
       last if ($rs eq '');
@@ -896,7 +897,7 @@ sub getZapParams {
   $phash{countryCode} = $country;
   $phash{headendId} = $lineupId;
   $phash{device} = $device;
-  $phash{aid} = 'orbebb';
+  $phash{aid} = $aid;
   return %phash;
 }
 
