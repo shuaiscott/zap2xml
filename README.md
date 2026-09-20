@@ -19,4 +19,5 @@ You can configure the following environment variables below:
 - PASSWORD2 - Second zap2it.com password
 - OPT_ARGS2 = additional command line arguments for zap2xml for the second username
 - XMLTV_FILENAME - filename for your xmltv file (default: xmltv.xml)
+- URL_ASSETS - base URL for program images (default: https://tmsimg.fancybits.co/assets/)
 - SLEEPTIME - time in seconds to wait before next run (default: 43200)

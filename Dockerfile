@@ -9,6 +9,7 @@ ENV PASSWORD2=none
 ENV OPT_ARGS2=
 
 ENV XMLTV_FILENAME=xmltv.xml
+ENV URL_ASSETS=https://tmsimg.fancybits.co/assets/
 
 # Wait 12 Hours after run
 ENV SLEEPTIME=43200

@@ -49,7 +49,7 @@ $VERSION = "2018-12-01";
 print "zap2xml ($VERSION)\nCommand line: $0 " .  join(" ",@ARGV) . "\n";
 
 %options=();
-getopts("?aA:bB:c:C:d:DeE:Fgi:IjJ:l:Lm:Mn:N:o:Op:P:qRr:s:S:t:Tu:UwWxY:zZ:89",\%options);
+getopts("?aA:bB:c:C:d:DeE:Fgi:IjJ:k:l:Lm:Mn:N:o:Op:P:qRr:s:S:t:Tu:UwWxY:zZ:89",\%options);
 
 $homeDir = $ENV{HOME};
 $homeDir = $ENV{USERPROFILE} if !defined($homeDir);
@@ -157,7 +157,8 @@ $sleeptime = $options{S} if defined $options{S};
 $shiftMinutes = $options{m} if defined $options{m};
 $ncdays = $days - $ncdays; # make relative to the end
 $urlRoot = 'https://tvlistings.gracenote.com/';
-$urlAssets = 'https://emby.tmsimg.com/assets/';
+$urlAssets = 'https://tmsimg.fancybits.co/assets/';
+$urlAssets = $options{k} if defined $options{k};
 $tvgurlRoot = 'http://mobilelistings.tvguide.com/';
 $tvgMapiRoot = 'http://mapi.tvguide.com/';
 $tvgurl = 'https://www.tvguide.com/';
@@ -1566,6 +1567,7 @@ zap2xml <zap2xml\@gmail.com> ($VERSION)
   -c <cacheDirectory> (default = "$cacheDir")
   -l <lang> (default = "$lang")
   -i <iconDirectory> (default = don't download channel icons)
+  -k <asset URL> (default = "https://tmsimg.fancybits.co/assets/")
   -m <#> = offset program times by # minutes (better to use TZ env var)
   -b = retain website channel order
   -x = output XTVD xml file format (default = XMLTV)
